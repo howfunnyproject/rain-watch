@@ -1,0 +1,987 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>বৃষ্টি রাডার · Rain Watch BD</title>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-R0EM781HHR"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', 'G-R0EM781HHR');
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: #060d14;
+    --surface: #0b1825;
+    --card: #0f2030;
+    --border: #1a3a55;
+    --accent: #00c8ff;
+    --rain: #4fc3f7;
+    --heavy: #ff6b6b;
+    --text: #d0e8f5;
+    --muted: #4a7a9b;
+    --green: #00e5a0;
+    --orange: #ffab40;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Space Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,200,255,0.015) 2px, rgba(0,200,255,0.015) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+  header {
+    padding: 13px 15px 11px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: linear-gradient(180deg, rgba(0,200,255,0.06) 0%, transparent 100%);
+    position: relative;
+    gap: 8px;
+  }
+  header::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  }
+  .logo { display: flex; flex-direction: column; flex-shrink: 0; }
+  .logo-main {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 20px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .logo-sub { font-size: 8px; color: var(--muted); letter-spacing: 2.5px; text-transform: uppercase; margin-top: 2px; }
+  .header-right { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; justify-content: flex-end; }
+  .lang-toggle {
+    display: flex;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    overflow: hidden;
+  }
+  .lang-btn {
+    padding: 5px 10px;
+    cursor: pointer;
+    color: var(--muted);
+    background: none;
+    border: none;
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    transition: all 0.2s;
+  }
+  .lang-btn.active { background: rgba(0,200,255,0.15); color: var(--accent); }
+  .status-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--card); border: 1px solid var(--border);
+    padding: 5px 10px; border-radius: 20px; font-size: 10px; color: var(--muted);
+  }
+  .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .pulse-dot.live { background: var(--green); animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.7)} }
+
+  /* Tab switcher */
+  .tab-bar {
+    display: flex;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .tab-btn {
+    flex: 1;
+    padding: 10px 8px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); background: rgba(0,200,255,0.05); }
+
+  /* Panels */
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* Rain banner */
+  .rain-status {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .rain-icon { font-size: 26px; flex-shrink: 0; }
+  .rain-message { flex: 1; }
+  .rain-message-title {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic; font-size: 17px; color: var(--text); line-height: 1.2;
+  }
+  .rain-message-sub { font-size: 10px; color: var(--muted); margin-top: 3px; }
+
+  /* Stats grid */
+  .info-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 1px; background: var(--border); border-bottom: 1px solid var(--border);
+  }
+  .info-card { background: var(--surface); padding: 12px 14px; position: relative; overflow: hidden; }
+  .info-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--border); transition: background 0.3s; }
+  .info-card.raining::before { background: var(--rain); }
+  .info-card.clear::before { background: var(--green); }
+  .card-label { font-size: 8px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+  .card-value { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1; }
+  .card-value.accent { color: var(--accent); }
+  .card-value.green { color: var(--green); }
+  .card-value.rain { color: var(--rain); }
+  .card-value.heavy { color: var(--heavy); }
+  .card-sub { font-size: 9px; color: var(--muted); margin-top: 4px; }
+
+  /* Map */
+  #map { width: 100%; height: 48vh; min-height: 260px; background: #060d14; }
+  .leaflet-tile-pane { filter: brightness(0.7) saturate(0.5) hue-rotate(200deg); }
+  .map-wrapper { position: relative; }
+  .radar-legend {
+    position: absolute; top: 10px; left: 10px; z-index: 500;
+    background: rgba(6,13,20,0.88); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 8px; font-size: 8px; color: var(--muted);
+    letter-spacing: 1px; backdrop-filter: blur(6px); pointer-events: none;
+  }
+  .legend-row { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
+  .legend-row:last-child { margin-bottom: 0; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+  .locate-btn {
+    position: absolute; bottom: 12px; left: 10px; z-index: 600;
+    background: rgba(6,13,20,0.92); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: 'Space Mono', monospace;
+    font-size: 10px; padding: 7px 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    backdrop-filter: blur(8px); transition: border-color 0.2s, color 0.2s; white-space: nowrap;
+  }
+  .locate-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .radar-controls {
+    position: absolute; bottom: 12px; right: 10px; z-index: 600;
+    display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
+  }
+  .radar-btn {
+    background: rgba(6,13,20,0.92); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-family: 'Space Mono', monospace;
+    font-size: 10px; padding: 7px 11px; cursor: pointer;
+    display: flex; align-items: center; gap: 6px;
+    backdrop-filter: blur(8px); transition: border-color 0.2s, background 0.2s, color 0.2s; white-space: nowrap;
+  }
+  .radar-btn:hover { border-color: var(--accent); background: rgba(0,200,255,0.1); color: var(--accent); }
+  .radar-btn.active { border-color: var(--accent); background: rgba(0,200,255,0.15); color: var(--accent); }
+
+  /* BAF Panel */
+  .baf-panel { padding: 0; }
+
+  .baf-header {
+    padding: 12px 16px 10px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  .baf-title-row { display: flex; flex-direction: column; }
+  .baf-title {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 16px;
+    color: var(--orange);
+    line-height: 1;
+  }
+  .baf-subtitle { font-size: 8px; color: var(--muted); letter-spacing: 2px; text-transform: uppercase; margin-top: 2px; }
+
+  .baf-radar-switcher {
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .baf-radar-btn {
+    padding: 5px 9px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .baf-radar-btn.active { background: rgba(255,171,64,0.15); color: var(--orange); }
+
+  /* Radar image container */
+  .baf-img-wrap {
+    position: relative;
+    width: 100%;
+    background: #040a10;
+    overflow: hidden;
+    min-height: 260px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .baf-radar-img {
+    width: 100%;
+    height: auto;
+    display: block;
+    object-fit: contain;
+  }
+
+  .baf-img-error {
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 30px 20px;
+    text-align: center;
+    gap: 12px;
+  }
+
+  .baf-img-error.show { display: flex; }
+
+  .baf-error-icon { font-size: 32px; }
+  .baf-error-title { font-size: 13px; color: var(--text); }
+  .baf-error-sub { font-size: 10px; color: var(--muted); line-height: 1.6; }
+
+  .baf-open-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255,171,64,0.12);
+    border: 1px solid rgba(255,171,64,0.4);
+    border-radius: 8px;
+    color: var(--orange);
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    padding: 9px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    margin-top: 4px;
+    transition: background 0.2s;
+  }
+  .baf-open-btn:hover { background: rgba(255,171,64,0.2); }
+
+  .baf-timestamp {
+    padding: 8px 16px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  .baf-refresh-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .baf-refresh-btn:hover { border-color: var(--orange); color: var(--orange); }
+
+  .baf-note {
+    padding: 10px 16px;
+    background: rgba(255,171,64,0.05);
+    border-top: 1px solid rgba(255,171,64,0.15);
+    font-size: 9px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .baf-note span { color: var(--orange); }
+
+  /* Timeline */
+  .timeline-section { padding: 14px 16px 0; }
+  .section-label {
+    font-size: 9px; letter-spacing: 2.5px; text-transform: uppercase; color: var(--muted);
+    margin-bottom: 10px; display: flex; align-items: center; gap: 8px;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+  .timeline { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 14px; scrollbar-width: none; }
+  .timeline::-webkit-scrollbar { display: none; }
+  .time-block {
+    flex-shrink: 0; width: 52px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 4px; text-align: center;
+    position: relative; overflow: hidden; transition: border-color 0.2s;
+  }
+  .time-block.now { border-color: var(--accent); background: rgba(0,200,255,0.08); }
+  .time-block.rainy { border-color: rgba(79,195,247,0.4); }
+  .time-block.heavy-rain { border-color: rgba(255,107,107,0.5); }
+  .rain-bar-bg { position: absolute; bottom: 0; left: 0; right: 0; transition: height 0.5s; }
+  .time-label { font-size: 9px; color: var(--muted); position: relative; z-index: 1; }
+  .time-block.now .time-label { color: var(--accent); font-weight: 700; }
+  .time-rain-icon { font-size: 13px; margin: 3px 0; position: relative; z-index: 1; }
+  .time-mm { font-size: 9px; font-weight: 700; position: relative; z-index: 1; }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .error-msg {
+    background: rgba(255,107,107,0.1); border: 1px solid rgba(255,107,107,0.3);
+    border-radius: 8px; padding: 9px 14px; font-size: 10px; color: #ff9a9a;
+    margin: 10px 16px 0; display: none;
+  }
+  footer {
+    padding: 12px 16px; font-size: 9px; color: var(--muted);
+    text-align: center; letter-spacing: 1px; border-top: 1px solid var(--border);
+  }
+  .refresh-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    font-family: 'Space Mono', monospace; font-size: 9px; letter-spacing: 1px;
+    padding: 5px 10px; border-radius: 4px; cursor: pointer; margin-top: 8px; transition: all 0.2s;
+  }
+  .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body>
+
+
+
+<header>
+  <div class="logo">
+    <div class="logo-main" id="logoMain">Rain Watch</div>
+    <div class="logo-sub" id="logoSub">Live Radar · BD</div>
+  </div>
+  <div class="header-right">
+    <div class="lang-toggle">
+      <button class="lang-btn active" id="btnEN" onclick="setLang('en')">EN</button>
+      <button class="lang-btn" id="btnBN" onclick="setLang('bn')">বাং</button>
+    </div>
+    <div class="status-pill">
+      <div class="pulse-dot" id="statusDot"></div>
+      <span id="statusText">Init</span>
+    </div>
+  </div>
+</header>
+
+<div id="errorMsg" class="error-msg"></div>
+
+<!-- Tab bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" id="tab1" onclick="switchTab('map')">
+    🗺 <span id="tabMap">My Forecast</span>
+  </button>
+  <button class="tab-btn" id="tab2" onclick="switchTab('baf')">
+    📡 <span id="tabBAF">BAF Radar</span>
+  </button>
+</div>
+
+<!-- MAP PANEL -->
+<div class="panel active" id="panelMap">
+
+  <div class="rain-status">
+    <div class="rain-icon" id="rainIcon">🌤</div>
+    <div class="rain-message">
+      <div class="rain-message-title" id="rainTitle">Fetching weather...</div>
+      <div class="rain-message-sub" id="rainSub">Please wait</div>
+    </div>
+  </div>
+
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="card-label" id="label1">Now · Rain</div>
+      <div class="card-value accent" id="currentRain">—</div>
+      <div class="card-sub">mm/hr</div>
+    </div>
+    <div class="info-card" id="card2">
+      <div class="card-label" id="label2">Arrives / Clears</div>
+      <div class="card-value" id="arrivalTime">—</div>
+      <div class="card-sub" id="arrivalSub">calculating...</div>
+    </div>
+    <div class="info-card">
+      <div class="card-label" id="label3">Today Total</div>
+      <div class="card-value accent" id="todayTotal">—</div>
+      <div class="card-sub" id="label3sub">mm expected today</div>
+    </div>
+    <div class="info-card">
+      <div class="card-label" id="label4">Humidity · Wind</div>
+      <div class="card-value accent" id="humidity">—</div>
+      <div class="card-sub" id="windInfo">— km/h</div>
+    </div>
+  </div>
+
+  <div class="map-wrapper">
+    <div id="map"></div>
+    <div class="radar-legend">
+      <div class="legend-row"><div class="legend-dot" style="background:#4dd0e1"></div><span id="legLight">Light</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#1565c0"></div><span id="legMod">Moderate</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#7b1fa2"></div><span id="legHeavy">Heavy</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#b71c1c"></div><span id="legEx">Extreme</span></div>
+    </div>
+    <button class="locate-btn" onclick="locateMe()">📍 <span id="btnLocate">My Location</span></button>
+    <div class="radar-controls">
+      <button class="radar-btn active" id="radarToggle" onclick="toggleRadar()">🌧 <span id="btnRadarLabel">Hide Radar</span></button>
+      <button class="radar-btn" id="animToggle" onclick="toggleAnimation()"><span id="animIcon">▶</span> <span id="btnAnimLabel">Animate</span></button>
+    </div>
+  </div>
+
+  <div class="timeline-section">
+    <div class="section-label" id="forecastLabel">24-Hour Forecast</div>
+    <div class="timeline" id="timeline"></div>
+  </div>
+
+  <div style="text-align:center; padding: 4px 16px 8px;">
+    <button class="refresh-btn" id="btnRefresh" onclick="refreshData()">↻ Refresh Data</button>
+  </div>
+
+</div>
+
+<!-- BAF RADAR PANEL -->
+<div class="panel" id="panelBAF">
+
+  <div class="baf-header">
+    <div class="baf-title-row">
+      <div class="baf-title" id="bafTitle">BAF Doppler Radar</div>
+      <div class="baf-subtitle" id="bafSub">Bangladesh Air Force · Live</div>
+    </div>
+    <div class="baf-radar-switcher">
+      <button class="baf-radar-btn active" id="bafBtnMTR" onclick="switchBAF('MTR')">MTR</button>
+      <button class="baf-radar-btn" id="bafBtnZHR" onclick="switchBAF('ZHR')">ZHR</button>
+      <button class="baf-radar-btn" id="bafBtnMOS" onclick="switchBAF('MOS')">MOS</button>
+    </div>
+  </div>
+
+  <div class="baf-img-wrap" id="bafImgWrap">
+    <!-- Radar image — tries direct URL, falls back to error state -->
+    <img
+      id="bafRadarImg"
+      class="baf-radar-img"
+      src=""
+      alt="BAF Radar"
+      onerror="handleBafImgError()"
+      onload="handleBafImgLoad()"
+    />
+    <div class="baf-img-error" id="bafImgError">
+      <div class="baf-error-icon">📡</div>
+      <div class="baf-error-title" id="bafErrTitle">Radar image unavailable</div>
+      <div class="baf-error-sub" id="bafErrSub">
+        The BAF radar image could not be loaded directly.<br>
+        This is likely a CORS restriction — the server only allows<br>
+        the image to be viewed from Bangladesh IP addresses.
+      </div>
+      <a class="baf-open-btn" id="bafDirectLink" href="https://met.baf.mil.bd/Radar" target="_blank" rel="noopener">
+        🌐 <span id="bafOpenLabel">Open BAF Radar directly</span>
+      </a>
+    </div>
+  </div>
+
+  <div class="baf-timestamp" id="bafTimestamp">
+    <span id="bafTimeLabel">Last updated: checking...</span>
+    <button class="baf-refresh-btn" onclick="refreshBAF()" id="bafRefreshBtn">↻ Refresh</button>
+  </div>
+
+  <div class="baf-note" id="bafNote">
+    <span>ℹ</span> BAF radar updates every ~10 min. If image fails to load, tap "Open BAF Radar directly" — it works in your browser since you're in Bangladesh.
+  </div>
+
+</div>
+
+<footer id="footerText">
+  Radar: RainViewer + BAF MTR · Forecast: Open-Meteo · Map: OpenStreetMap<br>
+  Data refreshes every 10 minutes
+</footer>
+
+<script>
+// ─── Translations ─────────────────────────────────────────────────────────────
+const STR = {
+  en: {
+  
+    logoMain: 'Rain Watch', logoSub: 'Live Radar · BD',
+    errGps: '⚠ Location denied. Showing Dhaka. Enable location for rain estimates at your spot.',
+    l1: 'Now · Rain', l2: 'Arrives / Clears', l3: 'Today Total', l3s: 'mm expected today', l4: 'Humidity · Wind',
+    forecast: '24-Hour Forecast',
+    tabMap: 'My Forecast', tabBAF: 'BAF Radar',
+    locate: 'My Location',
+    radarHide: 'Hide Radar', radarShow: 'Show Radar',
+    animPlay: 'Animate', animStop: 'Stop',
+    legLight: 'Light', legMod: 'Moderate', legHeavy: 'Heavy', legEx: 'Extreme',
+    refresh: '↻ Refresh Data',
+    footer: 'Radar: RainViewer + BAF MTR · Forecast: Open-Meteo · Map: OpenStreetMap<br>Data refreshes every 10 minutes',
+    bafTitle: 'BAF Doppler Radar', bafSub: 'Bangladesh Air Force · Live',
+    bafErrTitle: 'Radar image unavailable',
+    bafErrSub: 'The BAF radar image could not load directly.\nThis is likely a CORS restriction — the server only\nserves images to Bangladesh IP addresses.',
+    bafOpenLabel: 'Open BAF Radar directly',
+    bafNote: '⚠ BAF radar updates every ~10 min. If image fails to load, tap "Open BAF Radar directly" — it works in your browser since you\'re in Bangladesh.',
+    bafChecking: 'Last updated: checking...',
+    bafUpdated: t => `Last updated: ${t}`,
+    fetching: 'Fetching weather...', wait: 'Please wait', calc: 'calculating...',
+    rainAll: 'rain continues all day', noRain: 'no rain in forecast',
+    clearsSub: t => `clears ~${t}`, arrSub: t => `rain expected ~${t}`,
+    nowLbl: 'NOW',
+    bHeavy: 'Heavy rain right now', bHeavyS: mm => `${mm} mm/hr · Stay indoors`,
+    bMod: 'Moderate rain at your location', bModS: mm => `${mm} mm/hr · Umbrella recommended`,
+    bLight: 'Light rain currently', bLightS: mm => `${mm} mm/hr · Light drizzle`,
+    bThund: 'Thunderstorm conditions', bThundS: 'Be careful outdoors',
+    bCloud: 'Overcast skies', bCloudS: 'Clouds overhead, no rain now',
+    bClear: 'Dry at your location', bClearS: 'Clear or partly cloudy',
+    none: 'None', dash: '—',
+    errLoad: 'Failed to load weather', errNet: 'Check internet connection',
+  },
+  bn: {
+
+    logoMain: 'বৃষ্টি রাডার', logoSub: 'লাইভ রাডার · বাংলাদেশ',
+    errGps: '⚠ লোকেশন অ্যাক্সেস দেওয়া হয়নি। ঢাকা দেখানো হচ্ছে।',
+    l1: 'এখন · বৃষ্টি', l2: 'আসছে / থামছে', l3: 'আজকের মোট', l3s: 'মিমি প্রত্যাশিত', l4: 'আর্দ্রতা · বাতাস',
+    forecast: '২৪ ঘণ্টার পূর্বাভাস',
+    tabMap: 'আমার পূর্বাভাস', tabBAF: 'BAF রাডার',
+    locate: 'আমার অবস্থান',
+    radarHide: 'রাডার লুকান', radarShow: 'রাডার দেখান',
+    animPlay: 'অ্যানিমেট', animStop: 'থামান',
+    legLight: 'হালকা', legMod: 'মাঝারি', legHeavy: 'ভারী', legEx: 'অতি ভারী',
+    refresh: '↻ আপডেট করুন',
+    footer: 'রাডার: RainViewer + BAF MTR · পূর্বাভাস: Open-Meteo · মানচিত্র: OSM<br>প্রতি ১০ মিনিটে আপডেট হয়',
+    bafTitle: 'BAF ডপলার রাডার', bafSub: 'বাংলাদেশ বিমান বাহিনী · লাইভ',
+    bafErrTitle: 'রাডার ছবি দেখা যাচ্ছে না',
+    bafErrSub: 'BAF রাডার ছবি সরাসরি লোড হচ্ছে না।\nসম্ভবত সার্ভার শুধু বাংলাদেশের IP থেকে\nছবি দেখায়।',
+    bafOpenLabel: 'BAF রাডার সরাসরি খুলুন',
+    bafNote: 'ℹ BAF রাডার প্রতি ~১০ মিনিটে আপডেট হয়। ছবি লোড না হলে "BAF রাডার সরাসরি খুলুন" এ ট্যাপ করুন।',
+    bafChecking: 'সর্বশেষ আপডেট: যাচাই হচ্ছে...',
+    bafUpdated: t => `সর্বশেষ: ${t}`,
+    fetching: 'আবহাওয়া আনা হচ্ছে...', wait: 'অপেক্ষা করুন', calc: 'হিসাব হচ্ছে...',
+    rainAll: 'সারাদিন বৃষ্টি চলবে', noRain: 'পূর্বাভাসে বৃষ্টি নেই',
+    clearsSub: t => `~${t}-এ থামবে`, arrSub: t => `~${t}-এ বৃষ্টি আসবে`,
+    nowLbl: 'এখন',
+    bHeavy: 'এখন ভারী বৃষ্টি হচ্ছে', bHeavyS: mm => `${mm} মিমি/ঘণ্টা · ঘরে থাকুন`,
+    bMod: 'মাঝারি বৃষ্টি হচ্ছে', bModS: mm => `${mm} মিমি/ঘণ্টা · ছাতা নিন`,
+    bLight: 'হালকা বৃষ্টি হচ্ছে', bLightS: mm => `${mm} মিমি/ঘণ্টা · গুঁড়ি গুঁড়ি`,
+    bThund: 'বজ্রঝড়ের পরিস্থিতি', bThundS: 'বাইরে সতর্ক থাকুন',
+    bCloud: 'মেঘলা আকাশ', bCloudS: 'মেঘ আছে, বৃষ্টি নেই',
+    bClear: 'শুষ্ক আবহাওয়া', bClearS: 'পরিষ্কার বা আংশিক মেঘলা',
+    none: 'নেই', dash: '—',
+    errLoad: 'আবহাওয়া লোড হয়নি', errNet: 'ইন্টারনেট চেক করুন',
+  }
+};
+let lang = 'en';
+const s = () => STR[lang];
+
+function setLang(l) {
+  lang = l;
+  document.getElementById('btnEN').classList.toggle('active', l==='en');
+  document.getElementById('btnBN').classList.toggle('active', l==='bn');
+  applyLang();
+  if (weatherData) renderWeather(weatherData);
+}
+function applyLang() {
+  const L = s();
+  document.getElementById('logoMain').textContent = L.logoMain;
+  document.getElementById('logoSub').textContent = L.logoSub;
+  document.getElementById('label1').textContent = L.l1;
+  document.getElementById('label2').textContent = L.l2;
+  document.getElementById('label3').textContent = L.l3;
+  document.getElementById('label3sub').textContent = L.l3s;
+  document.getElementById('label4').textContent = L.l4;
+  document.getElementById('forecastLabel').textContent = L.forecast;
+  document.getElementById('tabMap').textContent = L.tabMap;
+  document.getElementById('tabBAF').textContent = L.tabBAF;
+  document.getElementById('btnLocate').textContent = L.locate;
+  document.getElementById('btnRadarLabel').textContent = radarVisible ? L.radarHide : L.radarShow;
+  document.getElementById('btnAnimLabel').textContent = isAnimating ? L.animStop : L.animPlay;
+  document.getElementById('legLight').textContent = L.legLight;
+  document.getElementById('legMod').textContent = L.legMod;
+  document.getElementById('legHeavy').textContent = L.legHeavy;
+  document.getElementById('legEx').textContent = L.legEx;
+  document.getElementById('btnRefresh').textContent = L.refresh;
+  document.getElementById('footerText').innerHTML = L.footer;
+  document.getElementById('bafTitle').textContent = L.bafTitle;
+  document.getElementById('bafSub').textContent = L.bafSub;
+  document.getElementById('bafErrTitle').textContent = L.bafErrTitle;
+  document.getElementById('bafErrSub').textContent = L.bafErrSub;
+  document.getElementById('bafOpenLabel').textContent = L.bafOpenLabel;
+  document.getElementById('bafNote').textContent = L.bafNote;
+  document.getElementById('bafRefreshBtn').textContent = '↻ ' + (lang==='bn'?'আপডেট':'Refresh');
+}
+
+// ─── Tab switching ────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  document.getElementById('panelMap').classList.toggle('active', tab==='map');
+  document.getElementById('panelBAF').classList.toggle('active', tab==='baf');
+  document.getElementById('tab1').classList.toggle('active', tab==='map');
+  document.getElementById('tab2').classList.toggle('active', tab==='baf');
+  if (tab==='map') { setTimeout(()=>{ if(map) map.invalidateSize(); }, 100); }
+  if (tab==='baf') { refreshBAF(); }
+}
+
+// ─── BAF Radar ────────────────────────────────────────────────────────────────
+// BAF radar image URLs — these are the direct image endpoints used by met.baf.mil.bd
+// They serve the latest radar image and update every ~10 minutes
+const BAF_RADARS = {
+  MTR: {
+    urls: [
+      'https://met.baf.mil.bd/storage/radar/MTR.png',
+      'https://met.baf.mil.bd/storage/radar/mtr.png',
+      'https://met.baf.mil.bd/images/radar/MTR.png',
+      'https://met.baf.mil.bd/radar/MTR.png',
+    ],
+    page: 'https://met.baf.mil.bd/Radar',
+    name: 'MTR (Dhaka)'
+  },
+  ZHR: {
+    urls: [
+      'https://met.baf.mil.bd/storage/radar/ZHR.png',
+      'https://met.baf.mil.bd/storage/radar/zhr.png',
+      'https://met.baf.mil.bd/images/radar/ZHR.png',
+    ],
+    page: 'https://met.baf.mil.bd/ZhrRadar',
+    name: 'ZHR (Sylhet)'
+  },
+  MOS: {
+    urls: [
+      'https://met.baf.mil.bd/storage/radar/MOS.png',
+      'https://met.baf.mil.bd/storage/radar/mos.png',
+      'https://met.baf.mil.bd/images/radar/MOS.png',
+    ],
+    page: 'https://met.baf.mil.bd/MosRadar',
+    name: 'MOS (Cox\'s Bazar)'
+  }
+};
+
+let currentBAF = 'MTR';
+let bafUrlIndex = 0;
+let bafLoaded = false;
+
+function switchBAF(type) {
+  currentBAF = type;
+  bafUrlIndex = 0;
+  bafLoaded = false;
+  document.getElementById('bafBtnMTR').classList.toggle('active', type==='MTR');
+  document.getElementById('bafBtnZHR').classList.toggle('active', type==='ZHR');
+  document.getElementById('bafBtnMOS').classList.toggle('active', type==='MOS');
+  document.getElementById('bafDirectLink').href = BAF_RADARS[type].page;
+  loadBAFImage();
+}
+
+function loadBAFImage() {
+  const radar = BAF_RADARS[currentBAF];
+  const img = document.getElementById('bafRadarImg');
+  const errDiv = document.getElementById('bafImgError');
+  img.style.display = 'block';
+  errDiv.classList.remove('show');
+  // Add cache-buster so browser re-fetches fresh image
+  const ts = Date.now();
+  img.src = radar.urls[bafUrlIndex] + '?t=' + ts;
+  document.getElementById('bafTimeLabel').textContent = s().bafChecking;
+}
+
+function handleBafImgLoad() {
+  bafLoaded = true;
+  const now = new Date();
+  document.getElementById('bafTimeLabel').textContent = s().bafUpdated(fmtTime(now));
+}
+
+function handleBafImgError() {
+  const radar = BAF_RADARS[currentBAF];
+  bafUrlIndex++;
+  if (bafUrlIndex < radar.urls.length) {
+    // Try next URL variant
+    const img = document.getElementById('bafRadarImg');
+    const ts = Date.now();
+    img.src = radar.urls[bafUrlIndex] + '?t=' + ts;
+  } else {
+    // All URLs failed — show fallback
+    document.getElementById('bafRadarImg').style.display = 'none';
+    document.getElementById('bafImgError').classList.add('show');
+    document.getElementById('bafTimeLabel').textContent = lang==='bn' ? 'লোড হয়নি' : 'Could not load';
+  }
+}
+
+function refreshBAF() {
+  bafUrlIndex = 0;
+  loadBAFImage();
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+let map, userLat, userLon, userMarker;
+let radarLayer = null, radarVisible = true;
+let radarFrames = [], currentFrame = 0, animInterval = null, isAnimating = false;
+let weatherData = null;
+
+// ─── Init — load immediately with Dhaka, no location prompt on start ──────────
+async function init() {
+  // Default to Dhaka — show the app instantly
+  userLat = 23.8103; userLon = 90.4125;
+  initMap(userLat, userLon);
+  setStatus('', 'BD');
+  // Load radar + weather for Dhaka right away
+  loadRadarFrames();
+  loadWeather(userLat, userLon);
+}
+
+function initMap(lat, lon) {
+  map = L.map('map', { zoomControl: false, attributionControl: false }).setView([lat, lon], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+  L.control.zoom({ position: 'topright' }).addTo(map);
+}
+
+function placeUserMarker(lat, lon) {
+  const icon = L.divIcon({
+    html: `<div style="width:16px;height:16px;background:#00c8ff;border:3px solid white;border-radius:50%;box-shadow:0 0 14px rgba(0,200,255,0.9)"></div>`,
+    iconSize: [16,16], iconAnchor: [8,8], className: ''
+  });
+  if (userMarker) map.removeLayer(userMarker);
+  userMarker = L.marker([lat, lon], { icon }).addTo(map);
+}
+
+function locateMe() {
+  const btn = document.querySelector('.locate-btn');
+  const lbl = document.getElementById('btnLocate');
+  const origText = lbl.textContent;
+  lbl.textContent = lang==='bn' ? 'খোঁজা হচ্ছে...' : 'Locating...';
+  btn.style.borderColor = 'var(--accent)';
+  btn.style.color = 'var(--accent)';
+
+  navigator.geolocation.getCurrentPosition(pos => {
+    userLat = pos.coords.latitude; userLon = pos.coords.longitude;
+    map.flyTo([userLat, userLon], 13, { duration: 1.5 });
+    placeUserMarker(userLat, userLon);
+    setStatus('live', 'LIVE');
+    loadWeather(userLat, userLon);
+    lbl.textContent = origText;
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  }, () => {
+    alert(lang==='bn' ? 'লোকেশন অ্যাক্সেস দেওয়া হয়নি' : 'Location access denied');
+    lbl.textContent = origText;
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  });
+}
+
+async function loadRadarFrames() {
+  try {
+    const r = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+    const data = await r.json();
+    radarFrames = [...(data.radar.past||[]), ...(data.radar.nowcast||[])];
+    if (radarFrames.length > 0) showRadarFrame(radarFrames.length - 1);
+  } catch(e) { console.warn('Radar failed', e); }
+}
+
+function showRadarFrame(idx) {
+  if (radarLayer) { map.removeLayer(radarLayer); radarLayer = null; }
+  if (!radarVisible || !radarFrames[idx]) return;
+  const frame = radarFrames[idx];
+  radarLayer = L.tileLayer(
+    `https://tilecache.rainviewer.com/v2/radar${frame.path}/256/{z}/{x}/{y}/4/1_1.png`,
+    { opacity: 0.75, zIndex: 5, tileSize: 256 }
+  ).addTo(map);
+  currentFrame = idx;
+}
+
+function toggleRadar() {
+  radarVisible = !radarVisible;
+  document.getElementById('radarToggle').classList.toggle('active', radarVisible);
+  document.getElementById('btnRadarLabel').textContent = radarVisible ? s().radarHide : s().radarShow;
+  if (radarVisible) showRadarFrame(currentFrame);
+  else if (radarLayer) { map.removeLayer(radarLayer); radarLayer = null; }
+}
+
+function toggleAnimation() {
+  if (isAnimating) {
+    clearInterval(animInterval); isAnimating = false;
+    document.getElementById('animIcon').textContent = '▶';
+    document.getElementById('btnAnimLabel').textContent = s().animPlay;
+    document.getElementById('animToggle').classList.remove('active');
+    showRadarFrame(radarFrames.length - 1);
+  } else {
+    isAnimating = true;
+    document.getElementById('animIcon').textContent = '⏹';
+    document.getElementById('btnAnimLabel').textContent = s().animStop;
+    document.getElementById('animToggle').classList.add('active');
+    let f = 0;
+    animInterval = setInterval(()=>{ showRadarFrame(f % radarFrames.length); f++; }, 600);
+  }
+}
+
+// ─── Weather — FIX: use hourly precipitation for current hour, not just current field ──
+async function loadWeather(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&current=precipitation,rain,weathercode,relative_humidity_2m,windspeed_10m,apparent_temperature` +
+      `&hourly=precipitation,precipitation_probability,weathercode` +
+      `&daily=precipitation_sum&timezone=auto&forecast_days=2`;
+    const r = await fetch(url);
+    weatherData = await r.json();
+    renderWeather(weatherData);
+  } catch(e) {
+    document.getElementById('rainTitle').textContent = s().errLoad;
+    document.getElementById('rainSub').textContent = s().errNet;
+  }
+}
+
+function renderWeather(data) {
+  const cur = data.current, hourly = data.hourly, daily = data.daily;
+
+  // FIX: Use the higher of current.precipitation vs the closest hourly value
+  // Open-Meteo's current field lags — hourly is sometimes more up to date
+  const nowMs = new Date().getTime();
+  let hourlyNowRain = 0;
+  for (let i = 0; i < hourly.time.length; i++) {
+    const t = new Date(hourly.time[i]);
+    const diff = Math.abs(t.getTime() - nowMs);
+    if (diff < 3600000) { hourlyNowRain = hourly.precipitation[i] || 0; break; }
+  }
+  const nowRain = Math.max(cur.precipitation || 0, hourlyNowRain);
+
+  const rainEl = document.getElementById('currentRain');
+  rainEl.textContent = nowRain.toFixed(1);
+  rainEl.className = nowRain > 5 ? 'card-value heavy' : nowRain > 0 ? 'card-value rain' : 'card-value green';
+
+  document.getElementById('todayTotal').textContent = (daily?.precipitation_sum?.[0] || 0).toFixed(1);
+  document.getElementById('humidity').textContent = (cur.relative_humidity_2m || 0) + '%';
+  document.getElementById('windInfo').textContent = (cur.windspeed_10m || 0).toFixed(0) + ' km/h wind';
+
+  computeArrivalDeparture(hourly, nowRain);
+  updateBanner(nowRain, cur.weathercode);
+  renderTimeline(hourly);
+}
+
+function computeArrivalDeparture(hourly, nowRain) {
+  const now = new Date(), nowMs = now.getTime();
+  const times = hourly.time, prec = hourly.precipitation;
+  const arrEl = document.getElementById('arrivalTime');
+  const arrSub = document.getElementById('arrivalSub');
+  let nowIdx = 0;
+  for (let i = 0; i < times.length; i++) {
+    if (new Date(times[i]).getTime() <= nowMs) nowIdx = i; else break;
+  }
+  if (nowRain > 0.1) {
+    let clearIdx = null;
+    for (let i = nowIdx+1; i < times.length; i++) { if (prec[i] < 0.1) { clearIdx=i; break; } }
+    if (clearIdx !== null) {
+      const diffMin = Math.round((new Date(times[clearIdx]).getTime() - nowMs) / 60000);
+      arrEl.textContent = fmtDur(diffMin);
+      arrEl.className = 'card-value rain';
+      arrSub.textContent = s().clearsSub(fmtTime(new Date(times[clearIdx])));
+      document.getElementById('card2').className = 'info-card raining';
+    } else {
+      arrEl.textContent = s().dash; arrEl.className = 'card-value rain';
+      arrSub.textContent = s().rainAll;
+      document.getElementById('card2').className = 'info-card raining';
+    }
+  } else {
+    let rainIdx = null;
+    for (let i = nowIdx+1; i < times.length; i++) { if (prec[i] > 0.2) { rainIdx=i; break; } }
+    if (rainIdx !== null) {
+      const diffMin = Math.round((new Date(times[rainIdx]).getTime() - nowMs) / 60000);
+      arrEl.textContent = fmtDur(diffMin);
+      arrEl.className = 'card-value accent';
+      arrSub.textContent = s().arrSub(fmtTime(new Date(times[rainIdx])));
+      document.getElementById('card2').className = 'info-card';
+    } else {
+      arrEl.textContent = s().none; arrEl.className = 'card-value green';
+      arrSub.textContent = s().noRain;
+      document.getElementById('card2').className = 'info-card clear';
+    }
+  }
+}
+
+function fmtDur(m) {
+  if (m < 1) return '< 1min';
+  if (m < 60) return m+'min';
+  const h = Math.floor(m/60), r = m%60;
+  return r===0 ? h+'hr' : h+'hr '+r+'min';
+}
+function fmtTime(date) {
+  let h = date.getHours(), m = date.getMinutes();
+  const ap = h>=12?'pm':'am';
+  h = h%12||12;
+  return `${h}${m?':'+String(m).padStart(2,'0'):''}${ap}`;
+}
+function fmtTimeLabel(date) {
+  let h = date.getHours();
+  const ap = h>=12?'pm':'am';
+  h = h%12||12;
+  return `${h}${ap}`;
+}
+
+function updateBanner(nowRain, code) {
+  const L = s(), mm = nowRain.toFixed(1);
+  const icon = document.getElementById('rainIcon');
+  const title = document.getElementById('rainTitle');
+  const sub = document.getElementById('rainSub');
+  if (nowRain > 10)      { icon.textContent='⛈'; title.textContent=L.bHeavy; sub.textContent=L.bHeavyS(mm); }
+  else if (nowRain > 2)  { icon.textContent='🌧'; title.textContent=L.bMod; sub.textContent=L.bModS(mm); }
+  else if (nowRain > 0.1){ icon.textContent='🌦'; title.textContent=L.bLight; sub.textContent=L.bLightS(mm); }
+  else if ([95,96,99].includes(code)) { icon.textContent='⛈'; title.textContent=L.bThund; sub.textContent=L.bThundS; }
+  else if ([2,3].includes(Math.floor(code/10))) { icon.textContent='☁️'; title.textContent=L.bCloud; sub.textContent=L.bCloudS; }
+  else { icon.textContent='🌤'; title.textContent=L.bClear; sub.textContent=L.bClearS; }
+}
+
+function renderTimeline(hourly) {
+  const tl = document.getElementById('timeline');
+  tl.innerHTML = '';
+  const now = new Date(), nowMs = now.getTime();
+  let count = 0;
+  for (let i = 0; i < hourly.time.length && count < 24; i++) {
+    const tDate = new Date(hourly.time[i]);
+    if (tDate.getTime() < nowMs - 1800000) continue;
+    const mm = hourly.precipitation[i] || 0;
+    const diffMs = tDate.getTime() - nowMs;
+    const isNow = Math.abs(diffMs) < 3600000 && diffMs >= -1800000;
+    const block = document.createElement('div');
+    block.className = `time-block${isNow?' now':''}${mm>5?' heavy-rain':mm>0.2?' rainy':''}`;
+    const barH = Math.min(100, (mm/15)*100);
+    const barCol = mm>10?'rgba(255,107,107,0.3)':mm>2?'rgba(79,195,247,0.25)':'rgba(79,195,247,0.12)';
+    block.innerHTML = `
+      <div class="rain-bar-bg" style="height:${barH}%;background:${barCol}"></div>
+      <div class="time-label">${isNow ? s().nowLbl : fmtTimeLabel(tDate)}</div>
+      <div class="time-rain-icon">${rainEmoji(mm)}</div>
+      <div class="time-mm" style="color:${mm>5?'#ff6b6b':mm>0.5?'#4fc3f7':'#4a7a9b'}">${mm>0?mm.toFixed(1):'0'}</div>
+    `;
+    tl.appendChild(block); count++;
+  }
+}
+
+function rainEmoji(mm) {
+  if (mm>10) return '⛈'; if (mm>5) return '🌧'; if (mm>1) return '🌦'; if (mm>0.1) return '🌂'; return '☀️';
+}
+function setStatus(type, text) {
+  document.getElementById('statusText').textContent = text;
+  document.getElementById('statusDot').className = 'pulse-dot'+(type==='live'?' live':'');
+}
+function refreshData() {
+  if (userLat && userLon) { loadRadarFrames(); loadWeather(userLat, userLon); }
+}
+
+setInterval(refreshData, 10*60*1000);
+setInterval(() => { if (document.getElementById('panelBAF').classList.contains('active')) refreshBAF(); }, 10*60*1000);
+
+init();
+</script>
+</body>
+</html>
